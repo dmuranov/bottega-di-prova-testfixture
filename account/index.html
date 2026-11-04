@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Bottega di Prova · Accedi</title>
+<style>
+  body { font-family: system-ui, sans-serif; background: #faf7f2; color: #2b2118; margin: 0; }
+  main { max-width: 380px; margin: 60px auto; background: #fff; border: 1px solid #e6dccd; border-radius: 10px; padding: 28px; }
+  h1 { font-size: 22px; margin: 0 0 18px; }
+  label { display: block; font-size: 14px; margin: 12px 0 4px; }
+  input { width: 100%; box-sizing: border-box; padding: 10px; border: 1px solid #cbbda8; border-radius: 6px; font-size: 15px; }
+  button { margin-top: 16px; width: 100%; padding: 11px; border: 0; border-radius: 6px; font-size: 15px; cursor: pointer; }
+  .primary { background: #8a3b12; color: #fff; }
+  .google { background: #fff; border: 1px solid #cbbda8; color: #2b2118; }
+  .err { color: #b00020; font-size: 14px; margin-top: 10px; min-height: 18px; }
+  .hidden { display: none; }
+</style>
+</head>
+<body>
+<!--
+  TestPilot test fixture: a fake sign-in with an emailed one-time code, for
+  testing the code prompt and the live takeover. Nothing here is real auth.
+  Test login: tester@bottega-prova.test / prova-1234, code 246810.
+-->
+<main>
+  <section id="step-login">
+    <h1>Accedi al tuo account</h1>
+    <form id="login-form">
+      <label for="email">Email</label>
+      <input id="email" name="email" type="email" autocomplete="username" required>
+      <label for="password">Password</label>
+      <input id="password" name="password" type="password" autocomplete="current-password" required>
+      <button class="primary" type="submit">Accedi</button>
+    </form>
+    <button class="google" type="button" onclick="location.href='./google.html'">Accedi con Google</button>
+    <div class="err" id="login-err"></div>
+  </section>
+
+  <section id="step-code" class="hidden">
+    <h1>Verifica la tua identità</h1>
+    <p>Ti abbiamo inviato un codice di verifica a 6 cifre via email. Inseriscilo qui sotto.</p>
+    <form id="code-form">
+      <label for="code">Codice di verifica</label>
+      <input id="code" name="code" inputmode="numeric" autocomplete="one-time-code" maxlength="6" required>
+      <button class="primary" type="submit">Verifica</button>
+    </form>
+    <div class="err" id="code-err"></div>
+  </section>
+
+  <section id="step-done" class="hidden">
+    <h1>I tuoi ordini</h1>
+    <p>Benvenuto! Hai 2 ordini: Ciotola in maiolica, Tagliere in ulivo.</p>
+    <button class="primary" type="button" onclick="sessionStorage.removeItem('bp-auth'); location.reload()">Esci</button>
+  </section>
+</main>
+<script>
+  const show = (id) => ['step-login', 'step-code', 'step-done'].forEach((s) => document.getElementById(s).classList.toggle('hidden', s !== id));
+  if (sessionStorage.getItem('bp-auth') === 'ok') show('step-done');
+  document.getElementById('login-form').addEventListener('submit', (e) => {
+    e.preventDefault();
+    const ok = document.getElementById('email').value.trim().toLowerCase() === 'tester@bottega-prova.test'
+      && document.getElementById('password').value === 'prova-1234';
+    if (!ok) { document.getElementById('login-err').textContent = 'Email o password non corretti.'; return; }
+    show('step-code');
+  });
+  document.getElementById('code-form').addEventListener('submit', (e) => {
+    e.preventDefault();
+    if (document.getElementById('code').value.trim() !== '246810') { document.getElementById('code-err').textContent = 'Codice non valido.'; return; }
+    sessionStorage.setItem('bp-auth', 'ok');
+    show('step-done');
+  });
+</script>
+</body>
+</html>
