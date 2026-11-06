@@ -12,7 +12,7 @@ accounts (admin, Alice, Bob) are kept only on the owner's machine.
 |---|-------|-----------------|-------------------------------------|
 | 1 | Cart | The total ignores the quantity: 2 × €24 shows €24.00 | Journey test, Checkout & Booking |
 | 2 | Shop | "Track my order" does nothing when clicked | Click-everything (did nothing / broken) |
-| 3 | Shop | "Returns policy" opens a page that crashes (JS error, blank card) | Click-everything, Journey |
+| 3 | Shop | "Returns policy" crashes: the page does not change and a JS error is thrown (policy is null) | Click-everything, Journey |
 | 4 | My orders | Customers see the admin-only "Delete order" button (deleting does nothing for them) | Multi-role (admin vs customer) |
 | 5 | Receipts | `order_receipts` has no row-level security: any user, even signed out, can read every receipt (email, address, card ending) | Security check (cross-account / RLS) |
 | 6 | My orders | "Delete order" asks before deleting (a destructive control) | Click-everything must ASK before clicking it |
