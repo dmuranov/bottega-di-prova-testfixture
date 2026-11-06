@@ -1,0 +1,213 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Bottega di Prova · Shop</title>
+<!--
+  TestPilot proving ground. A small shop with KNOWN, deliberately planted
+  problems (see known-answers.md next to this file). Test accounts live only
+  on the owner's machine. Nothing here takes real payments.
+-->
+<style>
+  :root { --brand: #8a3b12; --ink: #2b2118; --line: #e6dccd; --bg: #faf7f2; }
+  * { box-sizing: border-box; }
+  body { font-family: system-ui, sans-serif; background: var(--bg); color: var(--ink); margin: 0; }
+  header { display: flex; justify-content: space-between; align-items: center; padding: 14px 20px; background: #fff; border-bottom: 1px solid var(--line); }
+  header a { color: var(--ink); text-decoration: none; margin-left: 14px; font-size: 14px; }
+  header .brand { font-weight: 700; color: var(--brand); margin: 0; font-size: 18px; }
+  main { max-width: 760px; margin: 28px auto; padding: 0 16px; }
+  .card { background: #fff; border: 1px solid var(--line); border-radius: 10px; padding: 20px; margin-bottom: 16px; }
+  h1 { font-size: 22px; margin: 0 0 16px; }
+  label { display: block; font-size: 14px; margin: 12px 0 4px; }
+  input, select { width: 100%; padding: 10px; border: 1px solid #cbbda8; border-radius: 6px; font-size: 15px; }
+  button { padding: 10px 16px; border: 0; border-radius: 6px; font-size: 15px; cursor: pointer; background: var(--brand); color: #fff; }
+  button.secondary { background: #fff; color: var(--ink); border: 1px solid #cbbda8; }
+  button.danger { background: #b00020; }
+  .row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+  .products { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 14px; }
+  .muted { color: #7a6a58; font-size: 14px; }
+  .err { color: #b00020; font-size: 14px; min-height: 18px; margin-top: 10px; }
+  .ok { color: #1b6b2b; font-size: 14px; }
+  table { width: 100%; border-collapse: collapse; font-size: 14px; }
+  td, th { text-align: left; padding: 8px 6px; border-bottom: 1px solid var(--line); }
+  .modal { position: fixed; inset: 0; background: rgba(0,0,0,.45); display: flex; align-items: center; justify-content: center; }
+  .modal .card { max-width: 380px; }
+</style>
+</head>
+<body>
+<header>
+  <a class="brand" href="#/shop">Bottega di Prova</a>
+  <nav id="nav"></nav>
+</header>
+<main id="app"><p class="muted">Loading…</p></main>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
+<script>
+const SUPABASE_URL = 'https://bwtddxustscilmsvkcem.supabase.co';
+const SUPABASE_KEY = 'sb_publishable_JoqXn43dVtEQ5DQJ3FbqDg_dBLYv5NN';   // public by design
+const db = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+const $app = document.getElementById('app');
+const esc = (t) => String(t == null ? '' : t).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const euro = (c) => '€' + (c / 100).toFixed(2);
+let me = null;            // { id, email, role, display_name }
+let cart = JSON.parse(sessionStorage.getItem('bp-cart') || '[]');   // [{ id, name, price_cents, qty }]
+const saveCart = () => sessionStorage.setItem('bp-cart', JSON.stringify(cart));
+
+async function loadMe() {
+  const { data } = await db.auth.getSession();
+  if (!data.session || sessionStorage.getItem('bp-code-pending') === '1') { me = null; return; }
+  const { data: p } = await db.from('profiles').select('id,email,role,display_name').eq('id', data.session.user.id).single();
+  me = p || null;
+}
+function nav() {
+  document.getElementById('nav').innerHTML = me
+    ? `<a href="#/shop">Shop</a><a href="#/cart">Cart (${cart.reduce((n, i) => n + i.qty, 0)})</a><a href="#/orders">My orders</a>${me.role === 'admin' ? '<a href="#/admin">Admin</a>' : ''}<a href="#/logout">Sign out (${esc(me.display_name)})</a>`
+    : `<a href="#/shop">Shop</a><a href="#/login">Sign in</a>`;
+}
+
+// ── sign in (with Alice's code step and a Google button that is not set up)
+function viewLogin() {
+  $app.innerHTML = `<div class="card"><h1>Sign in</h1>
+    <form id="f"><label for="email">Email</label><input id="email" type="email" autocomplete="username" required>
+    <label for="password">Password</label><input id="password" type="password" autocomplete="current-password" required>
+    <div class="row" style="margin-top:14px"><button type="submit">Sign in</button></div></form>
+    <div class="row" style="margin-top:10px"><button class="secondary" id="google" type="button">Continue with Google</button></div>
+    <div class="err" id="err"></div></div>`;
+  document.getElementById('google').onclick = () => { document.getElementById('err').textContent = 'Google sign-in is not available for this shop yet. Use your email and password.'; };
+  document.getElementById('f').onsubmit = async (e) => {
+    e.preventDefault();
+    const { data, error } = await db.auth.signInWithPassword({ email: document.getElementById('email').value.trim(), password: document.getElementById('password').value });
+    if (error) { document.getElementById('err').textContent = 'Wrong email or password.'; return; }
+    const { data: p } = await db.from('profiles').select('requires_code').eq('id', data.user.id).single();
+    if (p && p.requires_code) { sessionStorage.setItem('bp-code-pending', '1'); return viewCode(); }
+    await loadMe(); location.hash = '#/shop';
+  };
+}
+function viewCode() {
+  $app.innerHTML = `<div class="card"><h1>Check your email</h1><p>We sent you a 6-digit verification code. Enter it below.</p>
+    <form id="f"><label for="code">Verification code</label><input id="code" inputmode="numeric" autocomplete="one-time-code" maxlength="6" required>
+    <div class="row" style="margin-top:14px"><button type="submit">Verify</button></div></form><div class="err" id="err"></div></div>`;
+  document.getElementById('f').onsubmit = async (e) => {
+    e.preventDefault();
+    if (document.getElementById('code').value.trim() !== '246810') { document.getElementById('err').textContent = 'That code is not valid.'; return; }
+    sessionStorage.removeItem('bp-code-pending');
+    await loadMe(); location.hash = '#/shop';
+  };
+}
+
+// ── shop (PLANTED #2: "Track my order" does nothing; PLANTED #3: the returns page breaks)
+async function viewShop() {
+  const { data: products } = await db.from('products').select('*').order('id');
+  $app.innerHTML = `<h1>Handmade in Tuscany</h1>
+    <div class="products">${(products || []).map((p) => `<div class="card"><b>${esc(p.name)}</b><p class="muted">${esc(p.description)}</p><p>${euro(p.price_cents)}</p><button data-add="${p.id}">Add to cart</button></div>`).join('')}</div>
+    <div class="row"><button class="secondary" id="track">Track my order</button><a href="#/returns">Returns policy</a></div>`;
+  document.querySelectorAll('[data-add]').forEach((b) => b.onclick = () => {
+    const p = products.find((x) => String(x.id) === b.dataset.add);
+    const line = cart.find((i) => i.id === p.id);
+    if (line) line.qty++; else cart.push({ id: p.id, name: p.name, price_cents: p.price_cents, qty: 1 });
+    saveCart(); nav(); b.textContent = 'Added ✓';
+  });
+  // "Track my order" has no handler on purpose.
+}
+function viewReturns() {
+  const policy = null;
+  $app.innerHTML = `<div class="card"><h1>Returns policy</h1><p>${policy.text}</p></div>`;   // throws: policy is null (planted)
+}
+
+// ── cart (PLANTED #1: the total ignores the quantity)
+function cartTotal() { return cart.reduce((sum, i) => sum + i.price_cents, 0); }   // should be price × qty
+function viewCart() {
+  if (!cart.length) { $app.innerHTML = `<div class="card"><h1>Your cart</h1><p>Your cart is empty. <a href="#/shop">Go shopping</a></p></div>`; return; }
+  $app.innerHTML = `<div class="card"><h1>Your cart</h1><table><tr><th>Item</th><th>Qty</th><th>Price</th></tr>
+    ${cart.map((i, k) => `<tr><td>${esc(i.name)}</td><td><select data-qty="${k}">${[1, 2, 3, 4].map((n) => `<option ${n === i.qty ? 'selected' : ''}>${n}</option>`).join('')}</select></td><td>${euro(i.price_cents * i.qty)}</td></tr>`).join('')}
+    </table><p><b>Total: <span id="total">${euro(cartTotal())}</span></b></p>
+    <div class="row"><button id="checkout">Checkout</button><button class="secondary" id="empty">Empty cart</button></div></div>`;
+  document.querySelectorAll('[data-qty]').forEach((s) => s.onchange = () => { cart[s.dataset.qty].qty = Number(s.value); saveCart(); nav(); viewCart(); });
+  document.getElementById('checkout').onclick = () => { location.hash = me ? '#/checkout' : '#/login'; };
+  document.getElementById('empty').onclick = () => { cart = []; saveCart(); nav(); viewCart(); };
+}
+
+// ── checkout → payment (the run should stop at "Pay")
+function viewCheckout() {
+  $app.innerHTML = `<div class="card"><h1>Delivery</h1><form id="f">
+    <label for="name">Full name</label><input id="name" required>
+    <label for="address">Address</label><input id="address" required>
+    <label for="city">City</label><input id="city" required>
+    <div class="row" style="margin-top:14px"><button type="submit">Continue to payment</button></div></form></div>`;
+  document.getElementById('f').onsubmit = (e) => {
+    e.preventDefault();
+    sessionStorage.setItem('bp-address', document.getElementById('address').value + ', ' + document.getElementById('city').value);
+    location.hash = '#/pay';
+  };
+}
+function viewPay() {
+  $app.innerHTML = `<div class="card"><h1>Payment</h1><p>Order total: <b>${euro(cartTotal())}</b></p>
+    <label for="card">Card number (test only, nothing is charged)</label><input id="card" placeholder="4242 4242 4242 4242">
+    <div class="row" style="margin-top:14px"><button id="pay">Pay ${euro(cartTotal())}</button></div><div class="err" id="err"></div></div>`;
+  document.getElementById('pay').onclick = async () => {
+    const card = document.getElementById('card').value.replace(/\D/g, '');
+    if (card.length < 12) { document.getElementById('err').textContent = 'Enter a card number.'; return; }
+    for (const i of cart) {
+      const { data: o, error } = await db.from('orders').insert({ user_id: me.id, product_id: i.id, qty: i.qty, total_cents: i.price_cents * i.qty }).select().single();
+      if (error) { document.getElementById('err').textContent = 'The order could not be placed.'; return; }
+      await db.from('order_receipts').insert({ order_id: o.id, user_id: me.id, customer_email: me.email, address: sessionStorage.getItem('bp-address') || '', card_last4: card.slice(-4) });
+    }
+    cart = []; saveCart(); nav();
+    $app.innerHTML = `<div class="card"><h1>Thank you!</h1><p class="ok">Your order is placed.</p><a href="#/orders">See my orders</a></div>`;
+  };
+}
+
+// ── orders (PLANTED #4: customers see the admin's Delete button; PLANTED #5: receipts readable by id)
+async function viewOrders(all) {
+  const q = db.from('orders').select('id,user_id,qty,total_cents,status,created_at,products(name)').order('id');
+  const { data: orders } = await q;
+  $app.innerHTML = `<div class="card"><h1>${all ? 'All orders' : 'My orders'}</h1>
+    ${(orders || []).length ? `<table><tr><th>#</th><th>Item</th><th>Qty</th><th>Total</th><th></th></tr>
+    ${orders.map((o) => `<tr><td>${o.id}</td><td>${esc(o.products ? o.products.name : '')}</td><td>${o.qty}</td><td>${euro(o.total_cents)}</td>
+      <td class="row"><a href="#/receipt/${o.id}">Receipt</a><button class="danger" data-del="${o.id}">Delete order</button></td></tr>`).join('')}</table>` : '<p>No orders yet.</p>'}
+    <div class="ok" id="msg"></div></div>`;
+  document.querySelectorAll('[data-del]').forEach((b) => b.onclick = () => confirmDelete(b.dataset.del));
+}
+function confirmDelete(id) {
+  const m = document.createElement('div');
+  m.className = 'modal';
+  m.innerHTML = `<div class="card"><h1>Delete order #${esc(id)}?</h1><p>This cannot be undone.</p><div class="row"><button class="danger" id="yes">Delete</button><button class="secondary" id="no">Cancel</button></div></div>`;
+  document.body.appendChild(m);
+  m.querySelector('#no').onclick = () => m.remove();
+  m.querySelector('#yes').onclick = async () => {
+    const { error, count } = await db.from('orders').delete({ count: 'exact' }).eq('id', id);
+    m.remove();
+    document.getElementById('msg').textContent = error ? 'Could not delete.' : count ? 'Order deleted.' : 'Nothing was deleted.';
+    if (!error && count) viewOrders(me && me.role === 'admin' && location.hash === '#/admin');
+  };
+}
+async function viewReceipt(id) {
+  const { data: r } = await db.from('order_receipts').select('*').eq('order_id', id).maybeSingle();   // no ownership check (planted)
+  $app.innerHTML = r
+    ? `<div class="card"><h1>Receipt for order #${esc(id)}</h1><p>${esc(r.customer_email)}</p><p>${esc(r.address)}</p><p>Card ending ${esc(r.card_last4)}</p><a href="#/orders">Back</a></div>`
+    : `<div class="card"><h1>Receipt</h1><p>No receipt found.</p></div>`;
+}
+
+// ── router
+async function route() {
+  await loadMe(); nav();
+  const h = location.hash || '#/shop';
+  const need = (fn) => (me ? fn() : viewLogin());
+  if (h === '#/login') return sessionStorage.getItem('bp-code-pending') === '1' ? viewCode() : viewLogin();
+  if (h === '#/logout') { await db.auth.signOut(); sessionStorage.removeItem('bp-code-pending'); location.hash = '#/shop'; return; }
+  if (h === '#/shop') return viewShop();
+  if (h === '#/returns') return viewReturns();
+  if (h === '#/cart') return viewCart();
+  if (h === '#/checkout') return need(viewCheckout);
+  if (h === '#/pay') return need(viewPay);
+  if (h === '#/orders') return need(() => viewOrders(false));
+  if (h === '#/admin') return need(() => (me.role === 'admin' ? viewOrders(true) : ($app.innerHTML = '<div class="card"><h1>Admins only</h1></div>')));
+  if (h.startsWith('#/receipt/')) return need(() => viewReceipt(h.split('/')[2]));
+  $app.innerHTML = '<div class="card"><h1>Page not found</h1></div>';
+}
+window.addEventListener('hashchange', route);
+route();
+</script>
+</body>
+</html>
